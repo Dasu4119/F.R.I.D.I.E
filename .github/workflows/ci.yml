@@ -32,4 +32,4 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev
       - run: uv run ruff check app tests
-      - run: uv run pytest
+      - run: PYTHONPATH=. uv run pytest
