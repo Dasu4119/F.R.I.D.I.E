@@ -1,0 +1,17 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["app", "lib"],
+  "locale": "en",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Form", "Scrollbar", "CRUD"],
+  "requiredCommands": ["unit", "accessibility", "premium"],
+  "commands": {
+    "unit": "npm run test:unit",
+    "accessibility": "npm run test:a11y",
+    "premium": "npm run verify:premium"
+  },
+  "evidence": {
+    "crudFullFlow": "tests/history.test.mjs",
+    "failurePaths": "tests/accessibility.test.mjs"
+  }
+}

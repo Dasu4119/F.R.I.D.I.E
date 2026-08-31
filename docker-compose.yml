@@ -1,0 +1,38 @@
+services:
+  mongodb:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-fridie}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-change-this-local-password}
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - fridie-mongodb:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./services/api
+    restart: unless-stopped
+    environment:
+      FRIDIE_ENVIRONMENT: ${FRIDIE_ENVIRONMENT:-development}
+      FRIDIE_MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-fridie}:${MONGO_INITDB_ROOT_PASSWORD:-change-this-local-password}@mongodb:27017/FRIDIE?authSource=admin
+      FRIDIE_MONGODB_DATABASE: ${FRIDIE_MONGODB_DATABASE:-FRIDIE}
+      FRIDIE_CORS_ORIGINS: ${FRIDIE_CORS_ORIGINS:-http://localhost:3000,http://localhost:4173}
+      FRIDIE_OLLAMA_BASE_URL: ${FRIDIE_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      FRIDIE_OLLAMA_MODEL: ${FRIDIE_OLLAMA_MODEL:-}
+      FRIDIE_OLLAMA_TIMEOUT_SECONDS: ${FRIDIE_OLLAMA_TIMEOUT_SECONDS:-3}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  fridie-mongodb:
