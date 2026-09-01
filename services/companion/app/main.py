@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import platform
 import secrets
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Lock
+from typing import Callable
 
 from fastapi import FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
@@ -63,7 +65,28 @@ def load_applications(path: Path) -> dict[str, dict[str, str]]:
     return applications
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def confirm_launch(approval: PendingApproval) -> bool:
+    if platform.system() != "Windows":
+        return False
+    import ctypes
+
+    message = (
+        f"F.R.I.D.I.E. wants to open {approval.application_name}.\n\n"
+        f"Reason: {approval.reason}\n\nAllow this one launch?"
+    )
+    response = ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+        0,
+        message,
+        "F.R.I.D.I.E. approval required",
+        0x00000004 | 0x00000030,
+    )
+    return response == 6
+
+
+def create_app(
+    settings: Settings | None = None,
+    confirmer: Callable[[PendingApproval], bool] = confirm_launch,
+) -> FastAPI:
     active_settings = settings or Settings()
     applications = load_applications(active_settings.applications_file)
     pending: dict[str, PendingApproval] = {}
@@ -145,6 +168,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if approval.expires_at <= datetime.now(UTC):
             audit("application.launch.executed", "denied", application_id=approval.application_id)
             raise HTTPException(status_code=410, detail="Approval expired.")
+        if not confirmer(approval):
+            audit("application.launch.executed", "denied", application_id=approval.application_id)
+            raise HTTPException(status_code=403, detail="The user denied the local launch prompt.")
         process = subprocess.Popen([str(approval.executable)], shell=False)  # noqa: S603
         audit(
             "application.launch.executed",
