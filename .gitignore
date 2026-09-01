@@ -46,3 +46,5 @@ next-env.d.ts
 __pycache__/
 *.py[cod]
 .venv/
+services/companion/applications.json
+services/companion/companion-audit.jsonl
