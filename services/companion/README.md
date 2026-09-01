@@ -8,6 +8,6 @@ the user's PC and bind only to `127.0.0.1`. The cloud API never receives direct 
 3. Store it as `FRIDIE_COMPANION_TOKEN`; never commit it.
 4. Start with `uv run uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8765`.
 
-Every launch uses two calls: create a short-lived launch request, show it to the user, then consume
-the one-time approval. Arbitrary commands, shell arguments, remote binding, and background approval
-are intentionally unsupported.
+Every launch uses two calls and also presents a native Windows Yes/No prompt. The one-time approval
+is consumed even when the user declines. Arbitrary commands, shell arguments, remote binding, and
+background approval are intentionally unsupported.
