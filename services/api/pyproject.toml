@@ -4,11 +4,11 @@ version = "0.1.0"
 description = "Local FastAPI control plane for F.R.I.D.I.E."
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi>=0.116,<1.0",
+  "fastapi[standard]>=0.116,<1.0",
   "httpx>=0.28,<1.0",
   "pydantic-settings>=2.10,<3.0",
   "pymongo>=4.15,<5.0",
-  "uvicorn[standard]>=0.35,<1.0"
+  "uvicorn[standard]>=0.35,<1.0",
 ]
 
 [dependency-groups]
