@@ -15,9 +15,10 @@ F.R.I.D.I.E. is a privacy-first AI workbench that divides a user goal into depen
 - Owner-scoped MongoDB run history and idempotent, audited approval endpoints.
 - Configurable Ollama adapter with truthful connection/model readiness status.
 - Verifier-gated model-assisted planning with schema validation and deterministic fallback.
+- A loopback-only Windows companion prototype for explicitly approved, allowlisted app launches.
 - Security baseline, design system, UX contract, architecture notes, tests, and CI.
 
-The local API can create model-assisted plans, but the hosted command center remains deterministic. Docker code execution, vector search, plugins, authentication, and agent execution are intentionally not connected yet.
+The local API can create model-assisted plans, but the hosted command center remains deterministic. The Windows companion is not remotely connected and cannot execute arbitrary commands. Docker code execution, vector search, plugins, authentication, and agent execution are intentionally not connected yet.
 
 ## Architecture
 
@@ -75,6 +76,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/goals \
 - `app/` — command-center UI and hosted planning route.
 - `lib/fridie/` — TypeScript domain contract and deterministic planner.
 - `services/api/` — FastAPI, PyMongo Async persistence, and backend tests.
+- `services/companion/` — loopback-only, permission-gated Windows application launcher.
 - `docs/` — architecture, database, and security decisions.
 - `PRODUCT.md` — v0.1 outcome and acceptance criteria.
 - `DESIGN.md` / `UX-CONTRACT.md` — durable visual and behavior contracts.
