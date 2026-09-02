@@ -11,3 +11,5 @@ Required environment variables:
 
 The application performs a MongoDB ping and creates required indexes during
 startup. A deployment is ready only after that startup check succeeds.
+Index definitions are owned by `app/database.py`; do not pre-create indexes
+with the same names and different key orders.
