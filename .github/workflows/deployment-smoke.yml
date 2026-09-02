@@ -1,0 +1,54 @@
+name: Deployment smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "services/api/**"
+      - ".github/workflows/deployment-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fridie-deployment-smoke
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      API_BASE_URL: https://fridie.fastapicloud.dev
+      TEST_OWNER: deployment-smoke
+    steps:
+      - name: Wait for API and database health
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if response=$(curl --silent --show-error --fail --max-time 15 "$API_BASE_URL/health"); then
+              HEALTH_RESPONSE="$response" python -c 'import json, os; data = json.loads(os.environ["HEALTH_RESPONSE"]); assert data == {"status": "ok", "service": "fridie-api", "database": "FRIDIE"}'
+              exit 0
+            fi
+            echo "API not ready (attempt $attempt/30)"
+            sleep 10
+          done
+          echo "API did not become healthy within five minutes" >&2
+          exit 1
+
+      - name: Create and read back a persisted plan
+        run: |
+          set -euo pipefail
+          goal='Deployment smoke test: verify FastAPI Cloud persists a deterministic F.R.I.D.I.E. plan to Atlas.'
+          payload=$(GOAL="$goal" python -c 'import json, os; print(json.dumps({"goal": os.environ["GOAL"]}))')
+          plan=$(curl --silent --show-error --fail --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -H "X-FRIDIE-User: $TEST_OWNER" \
+            --data "$payload" \
+            "$API_BASE_URL/api/v1/goals")
+          trace_id=$(PLAN_RESPONSE="$plan" python -c 'import json, os; print(json.loads(os.environ["PLAN_RESPONSE"])["traceId"])')
+          runs=$(curl --silent --show-error --fail --max-time 30 \
+            -H "X-FRIDIE-User: $TEST_OWNER" \
+            "$API_BASE_URL/api/v1/runs?limit=10")
+          TRACE_ID="$trace_id" RUNS_RESPONSE="$runs" python -c 'import json, os; data = json.loads(os.environ["RUNS_RESPONSE"]); assert any(item["traceId"] == os.environ["TRACE_ID"] for item in data["items"])'
+          echo "Verified persisted trace: $trace_id" >> "$GITHUB_STEP_SUMMARY"
