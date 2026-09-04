@@ -9,6 +9,30 @@ export type FridieApiRequest = {
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+type ProxyDiagnostic = {
+  contentType?: string;
+  event: "upstream_fetch_failed" | "upstream_non_json" | "upstream_timeout";
+  errorName?: string;
+  rayId?: string;
+  status?: number;
+};
+
+function safeHeaderValue(value: string | null, maximumLength: number): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maximumLength || /[\r\n]/.test(normalized)) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function recordProxyDiagnostic(diagnostic: ProxyDiagnostic): void {
+  console.error(JSON.stringify({
+    component: "fridie_api_proxy",
+    ...diagnostic,
+  }));
+}
+
 function errorResponse(code: string, message: string, status: number) {
   return Response.json({ error: { code, message } }, { status });
 }
@@ -100,6 +124,12 @@ export async function requestFridieApi(input: FridieApiRequest): Promise<Respons
     try {
       payload = await response.json();
     } catch {
+      recordProxyDiagnostic({
+        contentType: safeHeaderValue(response.headers.get("content-type"), 120),
+        event: "upstream_non_json",
+        rayId: safeHeaderValue(response.headers.get("cf-ray"), 80),
+        status: response.status,
+      });
       return errorResponse(
         "invalid_service_response",
         "The F.R.I.D.I.E. data service returned an invalid response.",
@@ -125,6 +155,10 @@ export async function requestFridieApi(input: FridieApiRequest): Promise<Respons
     return Response.json({ data: payload }, { status: response.status });
   } catch (error) {
     const timedOut = error instanceof DOMException && error.name === "AbortError";
+    recordProxyDiagnostic({
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      event: timedOut ? "upstream_timeout" : "upstream_fetch_failed",
+    });
     return errorResponse(
       timedOut ? "service_timeout" : "service_unreachable",
       timedOut
