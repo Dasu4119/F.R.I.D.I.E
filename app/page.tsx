@@ -10,7 +10,6 @@ import {
   Database,
   GitBranch,
   History,
-  Laptop,
   LoaderCircle,
   LockKeyhole,
   Network,
@@ -20,13 +19,17 @@ import {
   Sparkles,
   TerminalSquare,
 } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { addApprovedRun, HISTORY_STORAGE_KEY, parseRunHistory } from "@/lib/fridie/history";
+import {
+  historyRecordFromPlan,
+  parseRunHistory,
+  upsertRunHistory,
+} from "@/lib/fridie/history";
 import type { AgentKind, GoalPlan, RunHistoryRecord } from "@/lib/fridie/types";
 
 const STARTER_GOAL =
@@ -58,7 +61,7 @@ function confidenceLabel(confidence: number) {
   return "Needs clarification";
 }
 
-function formatApprovalTime(value: string) {
+function formatRunTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
@@ -71,28 +74,62 @@ export default function Home() {
   const [isPlanning, setIsPlanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<RunHistoryRecord[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [approvalStatus, setApprovalStatus] = useState<"idle" | "saving" | "approved" | "error">(
     "idle",
   );
   const [approvalError, setApprovalError] = useState<string | null>(null);
-  const controllerRef = useRef<AbortController | null>(null);
+  const planControllerRef = useRef<AbortController | null>(null);
+  const historyControllerRef = useRef<AbortController | null>(null);
+  const approvalControllerRef = useRef<AbortController | null>(null);
   const goalRef = useRef<HTMLTextAreaElement | null>(null);
   const planHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
+  const loadHistory = useCallback(async (showLoading = true) => {
+    historyControllerRef.current?.abort();
+    const controller = new AbortController();
+    historyControllerRef.current = controller;
+    if (showLoading) setHistoryStatus("loading");
+    setHistoryError(null);
+
+    try {
+      const response = await fetch("/api/runs?limit=10", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const payload = (await response.json()) as {
+        data?: unknown;
+        error?: { message?: string };
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Persistent run history could not be loaded.");
+      }
+      setHistory(parseRunHistory(payload.data));
+      setHistoryStatus("ready");
+    } catch (caughtError) {
+      if (caughtError instanceof DOMException && caughtError.name === "AbortError") return;
+      setHistoryStatus("error");
+      setHistoryError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Persistent run history could not be loaded.",
+      );
+    } finally {
+      if (historyControllerRef.current === controller) historyControllerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     document.title = "Command center — F.R.I.D.I.E.";
-    const historyTimer = window.setTimeout(() => {
-      try {
-        setHistory(parseRunHistory(window.localStorage.getItem(HISTORY_STORAGE_KEY)));
-      } catch {
-        setHistory([]);
-      }
-    }, 0);
+    const initialHistoryTimer = window.setTimeout(() => void loadHistory(), 0);
     return () => {
-      window.clearTimeout(historyTimer);
-      controllerRef.current?.abort();
+      window.clearTimeout(initialHistoryTimer);
+      planControllerRef.current?.abort();
+      historyControllerRef.current?.abort();
+      approvalControllerRef.current?.abort();
     };
-  }, []);
+  }, [loadHistory]);
 
   async function createPlan() {
     const trimmedGoal = goal.trim();
@@ -102,9 +139,11 @@ export default function Home() {
       return;
     }
 
-    controllerRef.current?.abort();
+    planControllerRef.current?.abort();
+    approvalControllerRef.current?.abort();
+    approvalControllerRef.current = null;
     const controller = new AbortController();
-    controllerRef.current = controller;
+    planControllerRef.current = controller;
     setIsPlanning(true);
     setError(null);
     setApprovalStatus("idle");
@@ -124,7 +163,11 @@ export default function Home() {
       if (!response.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "The orchestrator could not create this plan.");
       }
-      setPlan(payload.data);
+      const nextPlan = payload.data;
+      setPlan(nextPlan);
+      setHistory((current) => upsertRunHistory(current, historyRecordFromPlan(nextPlan)));
+      setHistoryStatus("ready");
+      void loadHistory(false);
       requestAnimationFrame(() => planHeadingRef.current?.focus());
     } catch (caughtError) {
       if (caughtError instanceof DOMException && caughtError.name === "AbortError") return;
@@ -134,8 +177,8 @@ export default function Home() {
           : "The orchestrator could not create this plan. Try again.",
       );
     } finally {
-      if (controllerRef.current === controller) {
-        controllerRef.current = null;
+      if (planControllerRef.current === controller) {
+        planControllerRef.current = null;
         setIsPlanning(false);
       }
     }
@@ -146,31 +189,41 @@ export default function Home() {
     if (!isPlanning) void createPlan();
   }
 
-  function approvePlan() {
+  async function approvePlan() {
     if (!plan || approvalStatus === "saving" || approvalStatus === "approved") return;
 
+    approvalControllerRef.current?.abort();
+    const controller = new AbortController();
+    approvalControllerRef.current = controller;
     setApprovalStatus("saving");
     setApprovalError(null);
-    const approvedAt = new Date().toISOString();
-    const record: RunHistoryRecord = {
-      traceId: plan.traceId,
-      objective: plan.objective,
-      taskCount: plan.tasks.length,
-      confidence: plan.confidence,
-      approvedAt,
-    };
 
     try {
-      const nextHistory = addApprovedRun(history, record);
-      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
-      setHistory(nextHistory);
-      setPlan({ ...plan, status: "approved", approvedAt });
+      const response = await fetch(`/api/runs/${encodeURIComponent(plan.traceId)}/approve`, {
+        method: "POST",
+        signal: controller.signal,
+      });
+      const payload = (await response.json()) as {
+        data?: RunHistoryRecord;
+        error?: { message?: string };
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "The plan approval could not be saved.");
+      }
+      if (approvalControllerRef.current !== controller) return;
+      setHistory((current) => upsertRunHistory(current, payload.data as RunHistoryRecord));
+      setPlan({ ...plan, status: "approved", approvedAt: payload.data.approvedAt ?? undefined });
       setApprovalStatus("approved");
-    } catch {
+    } catch (caughtError) {
+      if (caughtError instanceof DOMException && caughtError.name === "AbortError") return;
       setApprovalStatus("error");
       setApprovalError(
-        "This browser blocked device storage, so the plan was not approved. Allow site storage and try again.",
+        caughtError instanceof Error
+          ? caughtError.message
+          : "The plan approval could not be saved. Try again.",
       );
+    } finally {
+      if (approvalControllerRef.current === controller) approvalControllerRef.current = null;
     }
   }
 
@@ -186,8 +239,8 @@ export default function Home() {
         <nav className="topnav" aria-label="Command center sections">
           <a href="#command">Command</a><a href="#history">History</a><a href="#agents">Agents</a><a href="#activity">Activity</a>
         </nav>
-        <div className="local-badge" aria-label="Development mode: local first">
-          <LockKeyhole size={14} aria-hidden="true" /> Local-first v0.1
+        <div className="local-badge" aria-label="Owner-only authenticated workspace">
+          <LockKeyhole size={14} aria-hidden="true" /> Owner-only v0.2
         </div>
       </header>
 
@@ -248,21 +301,21 @@ export default function Home() {
 
           <aside className="system-panel" aria-labelledby="system-title">
             <div className="panel-kicker"><span>System readiness</span><Badge variant="outline">Foundation</Badge></div>
-            <h2 id="system-title">The control plane now verifies model plans.</h2>
+            <h2 id="system-title">Authenticated persistence is connected.</h2>
             <div className="readiness-list">
               <div className="readiness-row is-ready">
                 <span className="readiness-icon"><Network size={18} aria-hidden="true" /></span>
-                <div><strong>Orchestrator contract</strong><small>Ready · deterministic v0.1</small></div>
+                <div><strong>Protected API boundary</strong><small>Ready · server-only credential</small></div>
                 <CheckCircle2 size={18} aria-label="Ready" />
               </div>
               <div className="readiness-row is-ready">
                 <span className="readiness-icon"><Database size={18} aria-hidden="true" /></span>
-                <div><strong>MongoDB FRIDIE</strong><small>Local API contract ready</small></div>
+                <div><strong>MongoDB Atlas FRIDIE</strong><small>Durable owner-scoped run history</small></div>
                 <CheckCircle2 size={18} aria-label="Ready" />
               </div>
               <div className="readiness-row is-ready">
                 <span className="readiness-icon"><Bot size={18} aria-hidden="true" /></span>
-                <div><strong>Verified model planner</strong><small>Local API ready · fallback armed</small></div>
+                <div><strong>Deterministic planner</strong><small>Persisted before the plan appears</small></div>
                 <CheckCircle2 size={18} aria-label="Ready" />
               </div>
               <div className="readiness-row is-planned">
@@ -273,7 +326,7 @@ export default function Home() {
             </div>
             <div className="trust-note">
               <ShieldCheck size={19} aria-hidden="true" />
-              <p><strong>No hidden tool execution.</strong> The local API schema-checks Ollama plans and rejects unsafe task graphs. The hosted route remains deterministic; filesystem, network tools, and code execution stay off.</p>
+              <p><strong>No credential in the browser.</strong> The owner-only site forwards an opaque identity through its protected server route. Filesystem tools, agents, and code execution stay off.</p>
             </div>
           </aside>
         </section>
@@ -323,13 +376,13 @@ export default function Home() {
                 <div className="evidence-card limitation-card"><h3>Current limits</h3><ul>{plan.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>
                 <div className="handoff-card">
                   <span>Next control</span><strong>Approve the plan before agents execute.</strong>
-                  <p>Approval saves a bounded record to this browser only. It does not run tools or agents.</p>
+                  <p>Approval is written to MongoDB Atlas and its audit log. It does not run tools or agents.</p>
                   <Button
                     type="button"
                     className="approve-button"
                     disabled={approvalStatus === "saving" || approvalStatus === "approved"}
                     aria-busy={approvalStatus === "saving"}
-                    onClick={approvePlan}
+                    onClick={() => void approvePlan()}
                   >
                     {approvalStatus === "saving" ? (
                       <LoaderCircle className="spin" aria-hidden="true" />
@@ -363,14 +416,27 @@ export default function Home() {
 
         <section className="history-section" id="history" aria-labelledby="history-title">
           <div className="section-heading compact-heading">
-            <div><p className="eyebrow"><History size={15} aria-hidden="true" /> Approved run history</p><h2 id="history-title">Plans you chose to keep on this device.</h2></div>
-            <p className="history-boundary"><Laptop size={16} aria-hidden="true" /> Browser-only · latest 10 approvals</p>
+            <div><p className="eyebrow"><History size={15} aria-hidden="true" /> Persistent run history</p><h2 id="history-title">Your latest owner-scoped plans.</h2></div>
+            <p className="history-boundary"><Database size={16} aria-hidden="true" /> MongoDB Atlas · latest 10 runs</p>
           </div>
-          {history.length > 0 ? (
+          {historyStatus === "loading" ? (
+            <div className="history-state" role="status" aria-live="polite">
+              <LoaderCircle className="spin" size={22} aria-hidden="true" />
+              <div><strong>Loading persistent history</strong><p>Reading your latest owner-scoped runs…</p></div>
+            </div>
+          ) : historyStatus === "error" ? (
+            <div className="history-state history-error" role="alert">
+              <ShieldCheck size={22} aria-hidden="true" />
+              <div><strong>History is temporarily unavailable</strong><p>{historyError}</p></div>
+              <Button type="button" variant="outline" onClick={() => void loadHistory()}>
+                <RotateCcw aria-hidden="true" /> Retry
+              </Button>
+            </div>
+          ) : history.length > 0 ? (
             <ol className="history-list">
               {history.map((item) => (
                 <li key={item.traceId}>
-                  <div className="history-time"><time dateTime={item.approvedAt}>{formatApprovalTime(item.approvedAt)}</time><span>Approved</span></div>
+                  <div className="history-time"><time dateTime={item.approvedAt ?? item.createdAt}>{formatRunTime(item.approvedAt ?? item.createdAt)}</time><span className={item.status === "approved" ? "is-approved" : "is-planned"}>{item.status === "approved" ? "Approved" : "Planned"}</span></div>
                   <div className="history-copy"><strong>{item.objective}</strong><code>{item.traceId}</code></div>
                   <div className="history-metrics"><span>{item.taskCount} tasks</span><span>{Math.round(item.confidence * 100)}% confidence</span></div>
                 </li>
@@ -378,8 +444,8 @@ export default function Home() {
             </ol>
           ) : (
             <div className="history-empty">
-              <Laptop size={22} aria-hidden="true" />
-              <div><strong>No approved plans on this device</strong><p>Create a plan, inspect its boundaries, then choose <em>Approve plan</em> to keep a local record.</p></div>
+              <Database size={22} aria-hidden="true" />
+              <div><strong>No persistent plans yet</strong><p>Create a plan to store its trace, tasks, and audit event in MongoDB Atlas.</p></div>
             </div>
           )}
         </section>
@@ -410,16 +476,16 @@ export default function Home() {
           </div>
           <ol className="activity-list">
             <li><time>Now</time><div><strong>Product architecture loaded</strong><p>Eight supplied specifications reconciled into the v0.1 scope.</p></div></li>
-            <li><time>Guarded</time><div><strong>Model planning route verified</strong><p>Invalid, malformed, or unavailable model drafts fall back to the deterministic planner.</p></div></li>
-            <li><time>v0.1</time><div><strong>MongoDB contract selected</strong><p>Database label normalized to FRIDIE for cross-platform compatibility.</p></div></li>
-            <li><time>{plan?.status === "approved" ? "Approved" : plan ? "Ready" : "Waiting"}</time><div><strong>{plan?.status === "approved" ? "Plan approval recorded" : plan ? "Goal plan created" : "Goal input ready"}</strong><p>{plan?.status === "approved" ? `${plan.traceId} is saved in this browser; no execution started.` : plan ? `${plan.tasks.length} tasks created under ${plan.traceId}.` : "No user goal has been submitted in this session yet."}</p></div></li>
+            <li><time>Guarded</time><div><strong>Server boundary authenticated</strong><p>Only the owner-only site proxy can call the persistent API; its credential never enters browser code.</p></div></li>
+            <li><time>Durable</time><div><strong>MongoDB Atlas connected</strong><p>Database name remains FRIDIE for cross-platform compatibility.</p></div></li>
+            <li><time>{plan?.status === "approved" ? "Approved" : plan ? "Stored" : "Waiting"}</time><div><strong>{plan?.status === "approved" ? "Plan approval recorded" : plan ? "Goal plan persisted" : "Goal input ready"}</strong><p>{plan?.status === "approved" ? `${plan.traceId} is approved in Atlas; no execution started.` : plan ? `${plan.tasks.length} tasks persisted under ${plan.traceId}.` : "No user goal has been submitted in this session yet."}</p></div></li>
           </ol>
         </section>
       </main>
 
       <footer>
         <div><BrainCircuit size={17} aria-hidden="true" /><strong>F.R.I.D.I.E.</strong><span>Fast Reasoning, Intelligent Development, Analysis & Innovation Engine</span></div>
-        <span>Foundation build · 2026</span>
+        <span>Authenticated persistence build · 2026</span>
       </footer>
     </div>
   );

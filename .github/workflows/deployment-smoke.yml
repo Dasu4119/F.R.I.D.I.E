@@ -20,8 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       API_BASE_URL: https://fridie.fastapicloud.dev
+      SERVICE_TOKEN: ${{ secrets.FRIDIE_SERVICE_TOKEN }}
       TEST_OWNER: deployment-smoke
     steps:
+      - name: Report protected-smoke availability
+        run: |
+          if [ -z "$SERVICE_TOKEN" ]; then
+            echo "Protected persistence smoke skipped until the FRIDIE_SERVICE_TOKEN repository secret is configured." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Wait for API and database health
         run: |
           set -euo pipefail
@@ -37,17 +44,20 @@ jobs:
           exit 1
 
       - name: Create and read back a persisted plan
+        if: ${{ env.SERVICE_TOKEN != '' }}
         run: |
           set -euo pipefail
           goal='Deployment smoke test: verify FastAPI Cloud persists a deterministic F.R.I.D.I.E. plan to Atlas.'
           payload=$(GOAL="$goal" python -c 'import json, os; print(json.dumps({"goal": os.environ["GOAL"]}))')
           plan=$(curl --silent --show-error --fail --max-time 30 \
             -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $SERVICE_TOKEN" \
             -H "X-FRIDIE-User: $TEST_OWNER" \
             --data "$payload" \
             "$API_BASE_URL/api/v1/goals")
           trace_id=$(PLAN_RESPONSE="$plan" python -c 'import json, os; print(json.loads(os.environ["PLAN_RESPONSE"])["traceId"])')
           runs=$(curl --silent --show-error --fail --max-time 30 \
+            -H "Authorization: Bearer $SERVICE_TOKEN" \
             -H "X-FRIDIE-User: $TEST_OWNER" \
             "$API_BASE_URL/api/v1/runs?limit=10")
           TRACE_ID="$trace_id" RUNS_RESPONSE="$runs" python -c 'import json, os; data = json.loads(os.environ["RUNS_RESPONSE"]); assert any(item["traceId"] == os.environ["TRACE_ID"] for item in data["items"])'

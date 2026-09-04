@@ -24,6 +24,7 @@ export interface AgentTask {
 
 export interface GoalPlan {
   traceId: string;
+  projectId?: string;
   objective: string;
   summary: string;
   confidence: number;
@@ -37,8 +38,12 @@ export interface GoalPlan {
 
 export interface RunHistoryRecord {
   traceId: string;
+  projectId: string;
   objective: string;
+  status: "planned" | "approved";
   taskCount: number;
   confidence: number;
-  approvedAt: string;
+  createdAt: string;
+  approvedAt?: string | null;
+  planningSource: "deterministic" | "ollama" | "deterministic_fallback";
 }

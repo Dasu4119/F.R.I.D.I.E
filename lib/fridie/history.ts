@@ -1,6 +1,5 @@
-import type { RunHistoryRecord } from "@/lib/fridie/types";
+import type { GoalPlan, RunHistoryRecord } from "@/lib/fridie/types";
 
-export const HISTORY_STORAGE_KEY = "fridie.approved-runs.v1";
 export const HISTORY_LIMIT = 10;
 
 function isRunHistoryRecord(value: unknown): value is RunHistoryRecord {
@@ -9,8 +8,11 @@ function isRunHistoryRecord(value: unknown): value is RunHistoryRecord {
   return (
     typeof record.traceId === "string" &&
     /^fri-\d{8}-\d{8}$/.test(record.traceId) &&
+    typeof record.projectId === "string" &&
+    record.projectId.length > 0 &&
     typeof record.objective === "string" &&
     record.objective.trim().length > 0 &&
+    (record.status === "planned" || record.status === "approved") &&
     typeof record.taskCount === "number" &&
     Number.isInteger(record.taskCount) &&
     record.taskCount >= 1 &&
@@ -19,28 +21,49 @@ function isRunHistoryRecord(value: unknown): value is RunHistoryRecord {
     Number.isFinite(record.confidence) &&
     record.confidence >= 0 &&
     record.confidence <= 1 &&
-    typeof record.approvedAt === "string" &&
-    Number.isFinite(Date.parse(record.approvedAt))
+    typeof record.createdAt === "string" &&
+    Number.isFinite(Date.parse(record.createdAt)) &&
+    (record.approvedAt === undefined ||
+      record.approvedAt === null ||
+      (typeof record.approvedAt === "string" && Number.isFinite(Date.parse(record.approvedAt)))) &&
+    (record.planningSource === "deterministic" ||
+      record.planningSource === "ollama" ||
+      record.planningSource === "deterministic_fallback")
   );
 }
 
-export function parseRunHistory(serialized: string | null): RunHistoryRecord[] {
-  if (!serialized) return [];
-  try {
-    const value: unknown = JSON.parse(serialized);
-    if (!Array.isArray(value)) return [];
-    return value.filter(isRunHistoryRecord).slice(0, HISTORY_LIMIT);
-  } catch {
-    return [];
+export function parseRunHistory(value: unknown): RunHistoryRecord[] {
+  if (!value || typeof value !== "object" || !("items" in value)) {
+    throw new Error("Run history did not match the service contract.");
   }
+  const items = (value as { items?: unknown }).items;
+  if (!Array.isArray(items) || !items.every(isRunHistoryRecord)) {
+    throw new Error("Run history did not match the service contract.");
+  }
+  return items.slice(0, HISTORY_LIMIT);
 }
 
-export function addApprovedRun(
+export function upsertRunHistory(
   history: RunHistoryRecord[],
-  approved: RunHistoryRecord,
+  record: RunHistoryRecord,
 ): RunHistoryRecord[] {
-  return [approved, ...history.filter((item) => item.traceId !== approved.traceId)].slice(
+  return [record, ...history.filter((item) => item.traceId !== record.traceId)].slice(
     0,
     HISTORY_LIMIT,
   );
+}
+
+export function historyRecordFromPlan(plan: GoalPlan): RunHistoryRecord {
+  if (!plan.projectId) throw new Error("The persisted plan is missing its project identifier.");
+  return {
+    traceId: plan.traceId,
+    projectId: plan.projectId,
+    objective: plan.objective,
+    status: plan.status,
+    taskCount: plan.tasks.length,
+    confidence: plan.confidence,
+    createdAt: plan.createdAt,
+    approvedAt: plan.approvedAt,
+    planningSource: "deterministic",
+  };
 }

@@ -15,23 +15,32 @@ test("goal composer owns labels, validation, pending, and keyboard semantics", a
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/);
 });
 
-test("plan approval is explicit, device-local, and does not imply execution", async () => {
+test("plan approval is explicit, durable, and does not imply execution", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, />Approve plan</);
-  assert.match(source, /Browser-only · latest 10 approvals/);
+  assert.match(source, /"Approve plan"/);
+  assert.match(source, /MongoDB Atlas · latest 10 runs/);
   assert.match(source, /It does not run tools or agents/);
   assert.match(source, /Execution remains disabled/);
-  assert.match(source, /window\.localStorage\.setItem/);
+  assert.match(source, /\/api\/runs\/\$\{encodeURIComponent\(plan\.traceId\)\}\/approve/);
+  assert.doesNotMatch(source, /localStorage/);
   assert.match(source, /try\s*\{/);
   assert.match(source, /aria-busy=/);
 });
 
-test("model readiness copy separates verified local API behavior from hosted planning", async () => {
+test("readiness copy explains authenticated persistence and disabled execution", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /Verified model planner/);
-  assert.match(source, /Local API ready · fallback armed/);
-  assert.match(source, /hosted route remains deterministic/i);
-  assert.match(source, /fall back to the deterministic planner/);
+  assert.match(source, /Protected API boundary/);
+  assert.match(source, /MongoDB Atlas FRIDIE/);
+  assert.match(source, /No credential in the browser/);
+  assert.match(source, /code execution stay off/);
+});
+
+test("persistent history includes loading, error recovery, and empty states", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /Loading persistent history/);
+  assert.match(source, /History is temporarily unavailable/);
+  assert.match(source, /No persistent plans yet/);
+  assert.match(source, /onClick=\{\(\) => void loadHistory\(\)\}/);
 });
 
 test("global UI includes visible focus, scrollbars, narrow layout, and reduced motion", async () => {

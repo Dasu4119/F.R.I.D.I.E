@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     mongodb_uri: str = Field(default="mongodb://localhost:27017")
     mongodb_database: str = Field(default="FRIDIE", pattern=r"^[A-Za-z0-9_-]+$")
     cors_origins: str = "http://localhost:3000,http://localhost:4173"
+    service_token: SecretStr = Field(default=SecretStr(""))
     request_max_characters: int = Field(default=4_000, ge=100, le=20_000)
     ollama_base_url: str = Field(default="http://host.docker.internal:11434", pattern=r"^https?://")
     ollama_model: str = ""

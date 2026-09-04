@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException, Path, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from .auth import require_service_auth, require_service_owner
 from .config import get_settings
 from .database import approve_plan, create_client, ensure_indexes, list_runs, save_plan
 from .model_planner import route_model_plan
@@ -35,8 +37,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
-    description="Local, privacy-first orchestration API for F.R.I.D.I.E.",
+    version="0.2.0",
+    description="Authenticated, privacy-first orchestration API for F.R.I.D.I.E.",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -44,7 +46,7 @@ app.add_middleware(
     allow_origins=settings.allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-FRIDIE-User"],
+    allow_headers=["Authorization", "Content-Type", "X-FRIDIE-User"],
 )
 
 
@@ -63,7 +65,7 @@ async def health(request: Request) -> HealthResponse:
 async def create_goal_plan(
     payload: GoalRequest,
     request: Request,
-    x_fridie_user: str = Header(default="local-user", max_length=64),
+    owner_id: Annotated[str, Depends(require_service_owner)],
 ) -> GoalPlan:
     if len(payload.goal) > settings.request_max_characters:
         raise HTTPException(status_code=422, detail="Goal exceeds the configured length limit.")
@@ -72,7 +74,7 @@ async def create_goal_plan(
         return await save_plan(
             request.app.state.database,
             plan,
-            owner_id=x_fridie_user,
+            owner_id=owner_id,
             project_id=payload.project_id,
         )
     except ValueError as error:
@@ -88,7 +90,7 @@ async def create_goal_plan(
 async def create_model_assisted_goal_plan(
     payload: GoalRequest,
     request: Request,
-    x_fridie_user: str = Header(default="local-user", max_length=64),
+    owner_id: Annotated[str, Depends(require_service_owner)],
 ) -> ModelPlanResult:
     if len(payload.goal) > settings.request_max_characters:
         raise HTTPException(status_code=422, detail="Goal exceeds the configured length limit.")
@@ -103,7 +105,7 @@ async def create_model_assisted_goal_plan(
         saved_plan = await save_plan(
             request.app.state.database,
             result.plan,
-            owner_id=x_fridie_user,
+            owner_id=owner_id,
             project_id=payload.project_id,
             planning_route=result.route,
         )
@@ -115,10 +117,10 @@ async def create_model_assisted_goal_plan(
 @app.get("/api/v1/runs", response_model=RunListResponse, tags=["orchestration"])
 async def get_runs(
     request: Request,
+    owner_id: Annotated[str, Depends(require_service_owner)],
     limit: int = Query(default=20, ge=1, le=100),
-    x_fridie_user: str = Header(default="local-user", max_length=64),
 ) -> RunListResponse:
-    items = await list_runs(request.app.state.database, owner_id=x_fridie_user, limit=limit)
+    items = await list_runs(request.app.state.database, owner_id=owner_id, limit=limit)
     return RunListResponse(items=items, count=len(items))
 
 
@@ -129,16 +131,21 @@ async def get_runs(
 )
 async def approve_run(
     request: Request,
+    owner_id: Annotated[str, Depends(require_service_owner)],
     trace_id: str = Path(pattern=r"^fri-\d{8}-\d{8}$"),
-    x_fridie_user: str = Header(default="local-user", max_length=64),
 ) -> RunSummary:
     try:
-        return await approve_plan(request.app.state.database, trace_id, owner_id=x_fridie_user)
+        return await approve_plan(request.app.state.database, trace_id, owner_id=owner_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Run not found.") from error
 
 
-@app.get("/api/v1/models/ollama/status", response_model=ModelStatus, tags=["models"])
+@app.get(
+    "/api/v1/models/ollama/status",
+    response_model=ModelStatus,
+    tags=["models"],
+    dependencies=[Depends(require_service_auth)],
+)
 async def ollama_status() -> ModelStatus:
     adapter = OllamaAdapter(
         base_url=settings.ollama_base_url,

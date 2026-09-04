@@ -15,11 +15,11 @@ The product label remains **F.R.I.D.I.E.**. The MongoDB database is named **`FRI
 
 Indexes are created idempotently during API startup. Long-term memory requires `status: approved`; deterministic plans do not silently become memory.
 
-Run approval changes `status` from `planned` to `approved`, records `approved_at`, and appends one `goal.plan.approved` audit event. The operation is idempotent for the same owner and trace ID. The development `owner_id` scope is not a substitute for authentication.
+Run approval changes `status` from `planned` to `approved`, records `approved_at`, and appends one `goal.plan.approved` audit event. The operation is idempotent for the same authenticated owner and trace ID. The production `owner_id` is the stable Sites user identifier forwarded only by the authenticated server proxy.
 
 ## Local defaults
 
 - URI: `mongodb://mongodb:27017` inside Docker Compose.
 - Database: `FRIDIE`.
 - Development credentials come from `.env`; no credential is committed.
-- Production requires authentication, TLS, backups, and an explicit retention policy.
+- Production uses TLS and authenticated application access; backups, restore drills, and an explicit retention policy remain required before broader release.

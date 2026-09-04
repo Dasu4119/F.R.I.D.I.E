@@ -15,41 +15,55 @@ const vite = await createServer({
 
 after(async () => vite.close());
 
-test("parses only valid device-history records", async () => {
+test("parses valid server-history records and rejects contract drift", async () => {
   const { parseRunHistory } = await vite.ssrLoadModule("/lib/fridie/history.ts");
-  const result = parseRunHistory(JSON.stringify([
+  const result = parseRunHistory({ items: [
     {
       traceId: "fri-20260830-12345678",
+      projectId: "project-1",
       objective: "Build the approval gate",
+      status: "approved",
       taskCount: 4,
       confidence: 0.84,
+      createdAt: "2026-08-30T17:00:00.000Z",
       approvedAt: "2026-08-30T18:00:00.000Z",
+      planningSource: "deterministic",
     },
-    { traceId: "bad", objective: "", taskCount: -1 },
-  ]));
+  ] });
 
   assert.equal(result.length, 1);
   assert.equal(result[0].traceId, "fri-20260830-12345678");
+  assert.throws(
+    () => parseRunHistory({ items: [{ traceId: "bad", objective: "", taskCount: -1 }] }),
+    /service contract/,
+  );
 });
 
-test("prepends, de-duplicates, and bounds approved history", async () => {
-  const { addApprovedRun } = await vite.ssrLoadModule("/lib/fridie/history.ts");
+test("prepends, de-duplicates, and bounds persistent history", async () => {
+  const { upsertRunHistory } = await vite.ssrLoadModule("/lib/fridie/history.ts");
   const current = Array.from({ length: 12 }, (_, index) => ({
     traceId: `fri-20260830-${String(index).padStart(8, "0")}`,
+    projectId: `project-${index}`,
     objective: `Goal ${index}`,
+    status: "planned",
     taskCount: 3,
     confidence: 0.8,
-    approvedAt: "2026-08-30T18:00:00.000Z",
+    createdAt: "2026-08-30T18:00:00.000Z",
+    planningSource: "deterministic",
   }));
   const approved = {
     traceId: "fri-20260830-00000003",
+    projectId: "project-3",
     objective: "Updated goal",
+    status: "approved",
     taskCount: 5,
     confidence: 0.91,
+    createdAt: "2026-08-30T18:00:00.000Z",
     approvedAt: "2026-08-30T19:00:00.000Z",
+    planningSource: "deterministic",
   };
 
-  const next = addApprovedRun(current, approved);
+  const next = upsertRunHistory(current, approved);
 
   assert.equal(next.length, 10);
   assert.deepEqual(next[0], approved);

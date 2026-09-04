@@ -14,10 +14,10 @@
 
 | Domain / scope | Authoritative source | Source type | Reviewed date |
 |---|---|---|---|
-| Permission model | `docs/security.md` + Phase 8 PDF | Security policy | 2026-08-30 |
-| Data lifecycle | `docs/database.md` + Phase 5/6 PDFs | Data contract | 2026-08-30 |
+| Permission model | `docs/security.md` + Phase 8 PDF | Security policy | 2026-09-02 |
+| Data lifecycle | `docs/database.md` + Phase 5/6 PDFs | Data contract | 2026-09-02 |
 | Deletion / retention | `docs/security.md` | Deferred policy | 2026-08-30 |
-| Billing / payment | Not in v0.1 | Out of scope | 2026-08-30 |
+| Billing / payment | Not in v0.2 | Out of scope | 2026-08-30 |
 | Legal / regulatory copy | `PRODUCT.md` | Product brief | 2026-08-30 |
 | Market / content conventions | `DESIGN.md` | Design context | 2026-08-30 |
 
@@ -37,8 +37,8 @@
 |---|---|---|---|---|
 | Form | Goal composer in `app/page.tsx` using shared Textarea/Button | This contract | goal-submit | unit + build |
 | Scrollbar | Global rules in `app/globals.css` | `DESIGN.md` | stable gutter | premium audit |
-| Toast | Not used in v0.1; status remains inline | This contract | none | static audit |
-| CRUD | Create/read run through `/api/orchestrate`; local API owns approval transition | `docs/architecture.md` | create/read/approve | contract + backend test |
+| Toast | Not used in v0.2; status remains inline | This contract | none | static audit |
+| CRUD | Same-origin Sites routes proxy authenticated create/read/approve to FastAPI | `docs/architecture.md` | create/read/approve | route + backend tests |
 
 ## Component behavior
 
@@ -52,9 +52,9 @@
 ## Dataset navigation
 
 - Current task lists are bounded to one plan (maximum eight tasks) and render all.
-- Approved device history renders at most 10 records. It is ordered newest first, has no search/paging, and is explicitly labeled browser-only.
+- Persistent run history renders at most 10 owner-scoped records. It is ordered newest first and has no search or paging.
 - Empty state invites the user to submit a goal; error state preserves their goal and offers Retry.
-- No selection or bulk actions exist in v0.1.
+- No selection or bulk actions exist in v0.2.
 
 ## Flow ledger
 
@@ -62,12 +62,12 @@
 |---|---|---|---|---|---|---|---|
 | Create plan | `Divide this goal` | stable busy button + status | same command center | plan and trace appear | inline Retry; goal preserved | plan heading | `PRODUCT.md` |
 | Retry plan | `Retry` | same pending state | same command center | refreshed trace | repeatable inline error | error/plan heading | `docs/architecture.md` |
-| Approve plan | `Approve plan` | stable busy button | same command center | inline approved state + device history record | persistent inline storage error; no approval committed | approval control/status | Phase 8 + `docs/security.md` |
-| Cancel/back | not applicable in v0.1 | n/a | n/a | n/a | n/a | n/a | `PRODUCT.md` |
+| Approve plan | `Approve plan` | stable busy button | same command center | inline approved state + Atlas history record | persistent inline service error; no approval claimed | approval control/status | Phase 8 + `docs/security.md` |
+| Cancel/back | not applicable in v0.2 | n/a | n/a | n/a | n/a | n/a | `PRODUCT.md` |
 
 ## Navigation and responsive behavior
 
-- Route document title policy: `{Page} — F.R.I.D.I.E.`; v0.1 root is `Command center — F.R.I.D.I.E.`.
+- Route document title policy: `{Page} — F.R.I.D.I.E.`; the root is `Command center — F.R.I.D.I.E.`.
 - Route errors remain app-owned and keep a Home link when routes are added.
 - In-page navigation uses real anchors for Command, History, Agents, and Activity.
 - Below 900px the two-column grid becomes one column with the composer first.
@@ -75,7 +75,7 @@
 
 ## Overlays and feedback
 
-- No modal, destructive, toast, tooltip-only, or unsaved-change flows exist in v0.1.
+- No modal, destructive, toast, tooltip-only, or unsaved-change flows exist in v0.2.
 - Inline alerts are persistent until the next successful request.
 - Layer order is header < future popover < future dialog < future toast.
 
@@ -85,7 +85,7 @@
 - Duplicate submits are blocked and each request uses an `AbortController`.
 - Timeout/network/server errors preserve input and provide Retry.
 - The hosted command center remains deterministic. Local model-assisted planning reports `ollama` or `deterministicFallback` in its API response and never hides a rejected/unavailable model draft.
-- No offline queue, auto-save, multi-tab reconciliation, or authentication is claimed in v0.1.
+- No offline queue, auto-save, or multi-tab reconciliation is claimed. Authentication is provided by owner-only Sites access plus server-to-server FastAPI credentials.
 
 ## Validation
 
@@ -96,14 +96,15 @@
 
 ## Permission and clipboard
 
-- v0.1 is a local single-user slice. The `X-FRIDIE-User` header scopes development data but is not authentication. Authorization must be implemented before any shared deployment handles private user data.
+- Sites requires platform authentication before its proxy routes run. The proxy forwards the stable opaque Sites user ID; the browser cannot set the FastAPI ownership header because it never receives the bearer service credential.
+- FastAPI rejects missing or invalid service credentials with `401`. Broader sharing requires a tenant/role policy before the Sites access allowlist changes.
 - Trace IDs may be copied later; secrets never appear in the UI, URL, logs, or client storage.
-- Browser storage receives only an explicitly approved plan summary: trace ID, objective, task count, confidence, and approval timestamp. It is capped at 10 records and is not called synchronized or durable server history.
+- Browser storage is not authoritative for plans or approvals. Atlas stores the run, tasks, owner scope, and append-only audit events.
 
 ## Verification
 
 - Required commands: `npm run lint`, `npm run test:unit`, `npm run build`, `npm run verify:premium`, `python -m unittest discover`.
 - Accessibility checks: semantic static audit plus keyboard/reduced-motion browser pass when requested.
 - Canonical sibling flow: the goal Create and Retry flows share one status/error system.
-- CRUD full-flow evidence: `tests/planner.test.mjs`, `tests/history.test.mjs`, and backend run tests.
+- CRUD full-flow evidence: `tests/orchestrate-route.test.mjs`, `tests/history.test.mjs`, and backend auth/run tests.
 - Failure-path evidence: UI route-error and invalid-goal tests.
