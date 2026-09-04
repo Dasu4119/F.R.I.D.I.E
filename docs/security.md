@@ -11,7 +11,8 @@ v0.2 follows privacy by default, least privilege, explicit consent for sensitive
 - No generated-code execution, plugin installation, filesystem mutation, or arbitrary outbound network access.
 - Honest UI labels for connected versus planned capabilities.
 - Private API routes require a constant-time-checked bearer service credential and reject missing or invalid credentials with `401`.
-- The owner-only Sites server proxy maps the stable platform user ID to `owner_id`; email is not forwarded to FastAPI.
+- The owner-only Sites server proxy maps the platform-authenticated email to an HMAC `owner_id`; email is not forwarded to FastAPI or stored in Atlas.
+- Rotating the v0.2 service credential requires migrating the derived owner scope so existing history remains attached to the owner.
 - The FastAPI service credential exists only in server environment variables and never in browser JavaScript, URLs, or responses.
 - Explicit plan approval before any future execution handoff. Approval updates Atlas and never starts tools.
 - Owner-scoped run listing and idempotent approval, with an append-only first-approval audit event.

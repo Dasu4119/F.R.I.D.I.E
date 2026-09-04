@@ -19,7 +19,7 @@ An authenticated owner can submit a goal, receive a dependency-aware plan assign
 9. The model-assisted planning endpoint constrains Ollama output to a JSON schema, independently verifies task dependencies and handoff structure, and persists only a verified model plan or an explicit deterministic fallback.
 10. Model failures and rejected drafts never expose raw provider details or enable tools, filesystem access, or generated-code execution.
 11. Every private API route rejects missing or invalid service credentials with `401`; the browser calls only authenticated same-origin Sites routes.
-12. The stable Sites user ID scopes database reads and mutations; email and service credentials are never forwarded to the browser response.
+12. A server-derived HMAC owner ID scopes database reads and mutations; email and service credentials are never forwarded to FastAPI or the browser response.
 
 ## Scope boundary
 

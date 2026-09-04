@@ -96,7 +96,7 @@
 
 ## Permission and clipboard
 
-- Sites requires platform authentication before its proxy routes run. The proxy forwards the stable opaque Sites user ID; the browser cannot set the FastAPI ownership header because it never receives the bearer service credential.
+- Sites requires platform authentication before its proxy routes run. The proxy derives a stable HMAC owner scope from the authenticated email, then forwards only that opaque value; the browser cannot set the FastAPI ownership header because it never receives the bearer service credential.
 - FastAPI rejects missing or invalid service credentials with `401`. Broader sharing requires a tenant/role policy before the Sites access allowlist changes.
 - Trace IDs may be copied later; secrets never appear in the UI, URL, logs, or client storage.
 - Browser storage is not authoritative for plans or approvals. Atlas stores the run, tasks, owner scope, and append-only audit events.

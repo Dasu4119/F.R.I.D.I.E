@@ -15,7 +15,7 @@ The product label remains **F.R.I.D.I.E.**. The MongoDB database is named **`FRI
 
 Indexes are created idempotently during API startup. Long-term memory requires `status: approved`; deterministic plans do not silently become memory.
 
-Run approval changes `status` from `planned` to `approved`, records `approved_at`, and appends one `goal.plan.approved` audit event. The operation is idempotent for the same authenticated owner and trace ID. The production `owner_id` is the stable Sites user identifier forwarded only by the authenticated server proxy.
+Run approval changes `status` from `planned` to `approved`, records `approved_at`, and appends one `goal.plan.approved` audit event. The operation is idempotent for the same authenticated owner and trace ID. The production `owner_id` is an HMAC scope derived by the authenticated Sites server proxy; the source email is never stored in Atlas.
 
 ## Local defaults
 

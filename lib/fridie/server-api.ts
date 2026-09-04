@@ -4,7 +4,7 @@ export type FridieApiRequest = {
   body?: unknown;
   method: FridieApiMethod;
   path: string;
-  userId: string;
+  userEmail: string;
 };
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -36,6 +36,29 @@ function publicErrorMessage(status: number, payload: unknown): string {
   return "The F.R.I.D.I.E. data service could not complete this request.";
 }
 
+async function ownerScopeForEmail(token: string, email: string): Promise<string | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || normalizedEmail.length > 320) return null;
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(token),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(`fridie-owner:${normalizedEmail}`),
+  );
+  const digest = Array.from(new Uint8Array(signature), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `usr_${digest}`;
+}
+
 export async function requestFridieApi(input: FridieApiRequest): Promise<Response> {
   const configuration = readConfiguration();
   if (!configuration) {
@@ -50,6 +73,14 @@ export async function requestFridieApi(input: FridieApiRequest): Promise<Respons
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
+    const ownerId = await ownerScopeForEmail(configuration.token, input.userEmail);
+    if (!ownerId) {
+      return errorResponse(
+        "identity_unavailable",
+        "Your authenticated owner identity is unavailable. Sign in again.",
+        401,
+      );
+    }
     const url = new URL(input.path, configuration.baseUrl);
     const response = await fetch(url, {
       method: input.method,
@@ -60,7 +91,7 @@ export async function requestFridieApi(input: FridieApiRequest): Promise<Respons
         Accept: "application/json",
         Authorization: `Bearer ${configuration.token}`,
         "Content-Type": "application/json",
-        "X-FRIDIE-User": input.userId,
+        "X-FRIDIE-User": ownerId,
       },
       body: input.body === undefined ? undefined : JSON.stringify(input.body),
     });

@@ -36,7 +36,7 @@ test("POST /api/orchestrate requires an authenticated Sites user", async () => {
   assert.equal((await response.json()).error.code, "authentication_required");
 });
 
-test("POST /api/orchestrate validates input and forwards only the opaque owner identity", async () => {
+test("POST /api/orchestrate validates input and passes identity only to the server client", async () => {
   const { createOrchestrationPost } = await vite.ssrLoadModule("/app/api/orchestrate/route.ts");
   let forwarded;
   const POST = createOrchestrationPost({
@@ -57,7 +57,7 @@ test("POST /api/orchestrate validates input and forwards only the opaque owner i
     body: { goal: "Research and build a secure API." },
     method: "POST",
     path: "/api/v1/goals",
-    userId: "site-owner-123",
+    userEmail: "owner@example.com",
   });
   assert.equal(forwarded.body.email, undefined);
 });
@@ -97,7 +97,7 @@ test("GET /api/runs validates the bound and forwards owner scope", async () => {
   const response = await GET(new Request("http://localhost/api/runs?limit=10"));
   assert.equal(response.status, 200);
   assert.equal(forwarded.path, "/api/v1/runs?limit=10");
-  assert.equal(forwarded.userId, user.id);
+  assert.equal(forwarded.userEmail, user.email);
 
   const invalid = await GET(new Request("http://localhost/api/runs?limit=all"));
   assert.equal(invalid.status, 400);
@@ -127,7 +127,7 @@ test("POST /api/runs/:trace/approve rejects invalid traces and forwards valid ap
   );
   assert.equal(response.status, 200);
   assert.equal(forwarded.path, "/api/v1/runs/fri-20260902-12345678/approve");
-  assert.equal(forwarded.userId, user.id);
+  assert.equal(forwarded.userEmail, user.email);
 });
 
 test("server API client keeps the service token out of its browser-facing response", async () => {
@@ -148,14 +148,16 @@ test("server API client keeps the service token out of its browser-facing respon
     const response = await requestFridieApi({
       method: "GET",
       path: "/api/v1/runs?limit=10",
-      userId: user.id,
+      userEmail: user.email,
     });
     const body = await response.text();
 
     assert.equal(response.status, 200);
     assert.equal(forwardedHeaders.Authorization, "Bearer test-secret-service-token");
-    assert.equal(forwardedHeaders["X-FRIDIE-User"], user.id);
+    assert.match(forwardedHeaders["X-FRIDIE-User"], /^usr_[a-f0-9]{64}$/);
+    assert.notEqual(forwardedHeaders["X-FRIDIE-User"], user.email);
     assert.doesNotMatch(body, /test-secret-service-token/);
+    assert.doesNotMatch(body, /owner@example\.com/);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalBaseUrl === undefined) delete process.env.FRIDIE_API_BASE_URL;

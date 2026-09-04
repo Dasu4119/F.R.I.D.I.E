@@ -38,7 +38,7 @@ export function createApprovalPost(dependencies = defaultDependencies) {
     return dependencies.requestApi({
       method: "POST",
       path: `/api/v1/runs/${traceId}/approve`,
-      userId: user.id,
+      userEmail: user.email,
     });
   };
 }

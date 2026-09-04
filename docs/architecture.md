@@ -11,7 +11,7 @@ flowchart TD
   VE -->|rejected| PL
 ```
 
-The hosted application uses explicit same-origin routes for goal creation, history, and approval. Each route requires the platform-authenticated Sites user, forwards only that opaque stable ID, and adds a server-only bearer credential when calling FastAPI. FastAPI implements Atlas persistence, owner-scoped run history, idempotent approval, and a separate model-assisted planning endpoint. Ollama receives a strict JSON schema; F.R.I.D.I.E. validates schema, ordering, dependencies, build coverage, independent verification, and final handoff. Rejected or unavailable drafts fall back to the deterministic planner and disclose that route in the response.
+The hosted application uses explicit same-origin routes for goal creation, history, and approval. Each route requires the platform-authenticated Sites user, derives an opaque HMAC owner scope from the authenticated email, and adds a server-only bearer credential when calling FastAPI. FastAPI implements Atlas persistence, owner-scoped run history, idempotent approval, and a separate model-assisted planning endpoint. Ollama receives a strict JSON schema; F.R.I.D.I.E. validates schema, ordering, dependencies, build coverage, independent verification, and final handoff. Rejected or unavailable drafts fall back to the deterministic planner and disclose that route in the response.
 
 ## Public plan contract
 
@@ -21,7 +21,7 @@ Each response includes `traceId`, `objective`, `summary`, `confidence`, `status`
 
 - The browser never receives database or FastAPI service credentials.
 - Private API routes return `401` without valid service authentication.
-- Database ownership derives from the stable Sites user ID, not email or a client-supplied header.
+- Database ownership derives from a server-side HMAC of the platform-authenticated email. The email itself is not sent to FastAPI or stored in Atlas, and the browser cannot supply the owner header.
 - Input is length-limited and schema-validated at both web and FastAPI boundaries.
 - The API records structured audit events without storing secrets.
 - Tool execution, filesystem access, and network access remain disabled until the sandbox and permission manager are implemented.

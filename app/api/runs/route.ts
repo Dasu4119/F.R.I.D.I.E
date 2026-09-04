@@ -35,7 +35,7 @@ export function createRunsGet(dependencies = defaultDependencies) {
     return dependencies.requestApi({
       method: "GET",
       path: `/api/v1/runs?limit=${limit}`,
-      userId: user.id,
+      userEmail: user.email,
     });
   };
 }

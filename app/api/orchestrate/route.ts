@@ -38,7 +38,7 @@ export function createOrchestrationPost(dependencies = defaultDependencies) {
         body: { goal },
         method: "POST",
         path: "/api/v1/goals",
-        userId: user.id,
+        userEmail: user.email,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "The goal could not be planned.";
