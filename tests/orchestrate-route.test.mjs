@@ -166,3 +166,95 @@ test("server API client keeps the service token out of its browser-facing respon
     else process.env.FRIDIE_API_SERVICE_TOKEN = originalToken;
   }
 });
+
+test("server API diagnostics classify invalid upstream responses without leaking secrets", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const originalBaseUrl = process.env.FRIDIE_API_BASE_URL;
+  const originalToken = process.env.FRIDIE_API_SERVICE_TOKEN;
+  const diagnostics = [];
+
+  process.env.FRIDIE_API_BASE_URL = "https://fridie.fastapicloud.dev";
+  process.env.FRIDIE_API_SERVICE_TOKEN = "test-secret-service-token";
+  globalThis.fetch = async () => new Response(
+    "upstream body with test-secret-service-token and owner@example.com",
+    {
+      status: 403,
+      headers: {
+        "cf-ray": "safe-ray-123",
+        "content-type": "text/html; charset=UTF-8",
+      },
+    },
+  );
+  console.error = (...args) => diagnostics.push(args.join(" "));
+
+  try {
+    const { requestFridieApi } = await vite.ssrLoadModule("/lib/fridie/server-api.ts");
+    const response = await requestFridieApi({
+      method: "GET",
+      path: "/api/v1/runs?limit=10",
+      userEmail: user.email,
+    });
+    const body = await response.text();
+    const combinedDiagnostics = diagnostics.join("\n");
+
+    assert.equal(response.status, 502);
+    assert.equal(JSON.parse(body).error.code, "invalid_service_response");
+    assert.match(combinedDiagnostics, /"event":"upstream_non_json"/);
+    assert.match(combinedDiagnostics, /"status":403/);
+    assert.match(combinedDiagnostics, /"contentType":"text\/html; charset=UTF-8"/);
+    assert.match(combinedDiagnostics, /"rayId":"safe-ray-123"/);
+    assert.doesNotMatch(combinedDiagnostics, /test-secret-service-token/);
+    assert.doesNotMatch(combinedDiagnostics, /owner@example\.com/);
+    assert.doesNotMatch(combinedDiagnostics, /upstream body/);
+    assert.doesNotMatch(body, /test-secret-service-token|owner@example\.com/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
+    if (originalBaseUrl === undefined) delete process.env.FRIDIE_API_BASE_URL;
+    else process.env.FRIDIE_API_BASE_URL = originalBaseUrl;
+    if (originalToken === undefined) delete process.env.FRIDIE_API_SERVICE_TOKEN;
+    else process.env.FRIDIE_API_SERVICE_TOKEN = originalToken;
+  }
+});
+
+test("server API diagnostics classify fetch failures without logging error messages", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const originalBaseUrl = process.env.FRIDIE_API_BASE_URL;
+  const originalToken = process.env.FRIDIE_API_SERVICE_TOKEN;
+  const diagnostics = [];
+
+  process.env.FRIDIE_API_BASE_URL = "https://fridie.fastapicloud.dev";
+  process.env.FRIDIE_API_SERVICE_TOKEN = "test-secret-service-token";
+  globalThis.fetch = async () => {
+    throw new TypeError("request exposed owner@example.com and test-secret-service-token");
+  };
+  console.error = (...args) => diagnostics.push(args.join(" "));
+
+  try {
+    const { requestFridieApi } = await vite.ssrLoadModule("/lib/fridie/server-api.ts");
+    const response = await requestFridieApi({
+      method: "GET",
+      path: "/api/v1/runs?limit=10",
+      userEmail: user.email,
+    });
+    const body = await response.text();
+    const combinedDiagnostics = diagnostics.join("\n");
+
+    assert.equal(response.status, 502);
+    assert.equal(JSON.parse(body).error.code, "service_unreachable");
+    assert.match(combinedDiagnostics, /"event":"upstream_fetch_failed"/);
+    assert.match(combinedDiagnostics, /"errorName":"TypeError"/);
+    assert.doesNotMatch(combinedDiagnostics, /test-secret-service-token/);
+    assert.doesNotMatch(combinedDiagnostics, /owner@example\.com/);
+    assert.doesNotMatch(combinedDiagnostics, /request exposed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
+    if (originalBaseUrl === undefined) delete process.env.FRIDIE_API_BASE_URL;
+    else process.env.FRIDIE_API_BASE_URL = originalBaseUrl;
+    if (originalToken === undefined) delete process.env.FRIDIE_API_SERVICE_TOKEN;
+    else process.env.FRIDIE_API_SERVICE_TOKEN = originalToken;
+  }
+});
